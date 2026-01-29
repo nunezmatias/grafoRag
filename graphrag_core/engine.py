@@ -5,19 +5,11 @@ from chromadb.utils import embedding_functions
 from sentence_transformers import SentenceTransformer
 import torch
 import os
-import random
-
-import json
-import networkx as nx
-import chromadb
-from chromadb.utils import embedding_functions
-from sentence_transformers import SentenceTransformer
-import torch
-import os
 import sys
 import subprocess
 import zipfile
 import shutil
+import random
 
 # --- CONFIGURACIÓN ---
 # IMPORTANTE: Reemplaza este ID con el ID real de tu archivo en Google Drive
