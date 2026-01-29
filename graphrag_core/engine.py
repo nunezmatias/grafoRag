@@ -17,6 +17,7 @@ import os
 import sys
 import subprocess
 import zipfile
+import shutil
 
 # --- CONFIGURACIÓN ---
 # IMPORTANTE: Reemplaza este ID con el ID real de tu archivo en Google Drive
@@ -175,13 +176,14 @@ class GraphRAGEngine:
                     "year": meta.get('year', 'N/A'),
                     "content": doc.strip(),
                     "type": "PRIMARY",
-                    "relevance_note": f"Direct semantic match"
+                    "relevance": f"HIGH - Direct semantic match"
                 })
 
         knowledge["stats"]["primary"] = len(knowledge["papers"])
 
         # --- FASE 2: Expansión de Contexto (Node-Centric Semantic) ---
         if context_k > 0 and anchor_ids:
+            print(f"      > Expandiendo contexto para {len(anchor_ids)} temas clave (max {context_k} docs extra por tema)...")
             for nid in anchor_ids:
                 fetch_limit = context_k + 5 # Buffer para duplicados
                 try:
@@ -214,7 +216,7 @@ class GraphRAGEngine:
                                 "year": meta.get('year', 'N/A'),
                                 "content": doc.strip(),
                                 "type": "CONTEXT",
-                                "relevance_note": f"Contextual evidence for node '{nid}'"
+                                "relevance": f"CONTEXT (High Similarity) - Evidence for concept '{nid}'"
                             })
                 except Exception:
                     pass # Si falla un nodo, seguimos
@@ -250,8 +252,8 @@ class GraphRAGEngine:
                             
                             knowledge["graph_links"].append({
                                 "graph_id": f"GRAPH_{count}",
-                                "source": anchor,
-                                "target": neighbor,
+                                "node1": anchor,
+                                "node2": neighbor,
                                 "relation": rel,
                                 "evidence": evidence_text.strip()
                             })
@@ -266,54 +268,75 @@ class GraphRAGEngine:
         knowledge["stats"]["graph"] = len(knowledge["graph_links"])
         return knowledge
 
-    def format_prompt(self, knowledge, query, system_role="Expert Analyst", custom_instructions=None):
+    def format_prompt(self, knowledge, query):
         """
-        Convierte el objeto 'knowledge' en un Prompt formateado para LLM.
-        Agnóstico al dominio: Usa 'system_role' para definir el tono.
+        Convierte el objeto 'knowledge' en el Prompt Experto desarrollado originalmente.
         """
-        
-        # 1. Formatear Papers
+        # Construir bloques de texto dinámicos
         papers_block = ""
         for p in knowledge["papers"]:
-            tag = "[PRIMARY]" if p['type'] == "PRIMARY" else "[CONTEXT]"
-            papers_block += (f"[{p['ref_id']}] {tag} Title: {p['title']} ({p['year']})\n"
-                             f"Source: {p['source_id']}\n"
-                             f"Content: {p['content']}\n\n")
+            papers_block += (f"[{p['ref_id']}] | SOURCE_ID: {p['source_id']} | {p['title']} ({p['year']})\n"
+                             f"Key excerpt: {p['content']}\n" 
+                             f"Relevance: {p['relevance']}\n\n")
 
-        # 2. Formatear Grafo
         graph_block = ""
         for g in knowledge["graph_links"]:
-            graph_block += (f"[{g['graph_id']}] {g['source']} --[{g['relation']}]--> {g['target']}\n"
+            graph_block += (f"[{g['graph_id']}] {g['node1']} --[{g['relation']}]--> {g['node2']}\n"
                             f"Evidence: {g['evidence']}\n\n")
 
-        # 3. Instrucciones por defecto (Si no se dan custom)
-        if not custom_instructions:
-            custom_instructions = """
-            1. Analyze the Primary Sources to answer the core question.
-            2. Use Context Sources to broaden the perspective.
-            3. Use Graph Links to identify causal chains and systemic effects.
-            4. Triangulate information: Do graph links support the text evidence?
-            """
+        # Template Maestro Optimizado (V2)
+        prompt = f"""# ROLE
+You are a Climate Adaptation Knowledge Synthesizer with expertise in Systems Thinking. You translate complex scientific data into actionable, high-level technical narratives.
 
-        # 4. Ensamblar Prompt
-        prompt = f"""# SYSTEM ROLE
-{system_role}
+# CORE TASK
+Synthesize a response to the User Question by triangulating data from Scientific Literature and Graph Topology. You must distinguish between direct evidence and contextual background, and actively identify causal cascades.
 
-# USER QUERY
+# USER QUESTION
 "{query}"
 
-# RETRIEVED KNOWLEDGE BASE
+# KNOWLEDGE BASE
 
-## A. Textual Evidence (Scientific/Domain Documents)
+## DATA SOURCE LEGEND (Read Carefully)
+- **[REF_PRI_x]**: PRIMARY SOURCES. These documents are direct semantic matches to the user's query. Give them the highest weight.
+- **[REF_CTX_x]**: CONTEXT EXPANSION. These documents were retrieved because they belong to the same topical nodes as the primary hits. Use them to provide breadth, consensus, or background, but prioritize PRI sources for specific claims.
+- **[GRAPH_x]**: CAUSAL EVIDENCE. These are validated structural links with associated text snippets proving the relationship.
+
+## 1. Scientific Literature (Papers)
 {papers_block}
 
-## B. Structural Evidence (Knowledge Graph Topology)
+## 2. Structural Context (Knowledge Graph)
 {graph_block}
 
-# INSTRUCTIONS
-{custom_instructions}
+# SYNTHESIS GUIDELINES
 
-# OUTPUT FORMAT
-Provide a comprehensive, evidence-based response citing specific references (e.g., [REF_PRI_1], [GRAPH_3]).
+## A. Structural & Causal Analysis (Crucial)
+1.  **Chain Detection (Cascades):** Look for transitive patterns in the graph data.
+    *   *Example:* If you see `Heat -> Drought` and `Drought -> Food Insecurity`, explicitly analyze the "Heat-driven Food Insecurity" pathway.
+    *   Do not just list edges; weave them into causal chains.
+2.  **Mechanism Extraction:** Use the 'Evidence' text within [GRAPH_x] to explain *how* A affects B. (e.g., "Heat affects labor NOT just by discomfort, but by inducing physiological heat stress limits...").
+
+## B. Data Triangulation
+1.  **Cross-Verification:** Does the graph evidence [GRAPH_x] support the claims in the primary papers [REF_PRI]? Mention where sources converge.
+2.  **Handling Contradiction:** If [REF_CTX] suggests a different outcome than [REF_PRI], note this as scientific complexity or regional variation.
+
+## C. Narrative Quality
+1.  **Technical Precision:** Use domain-specific terminology (e.g., "Compound Events", "Teleconnections", "Maladaptation").
+2.  **Flow:** Avoid "According to paper X...". Instead, make the claim and cite it: "Climate change exacerbates coastal erosion through sea-level rise [REF_PRI_1], a process accelerated by urban subsidence [GRAPH_3]."
+
+# OUTPUT STRUCTURE
+
+Please organize your response as follows:
+
+1.  **Executive Synthesis**: Direct answer to the question, summarizing the key consensus.
+2.  **Mechanistic Pathways & Cascades**:
+    *   Detail the causal chains identified in the graph (A -> B -> C).
+    *   Explain the mechanisms using the evidence snippets.
+3.  **Evidence Deep Dive**:
+    *   Synthesize findings from Primary Sources [REF_PRI].
+    *   Enrich with Context [REF_CTX].
+4.  **Critical Gaps/Uncertainties**: What is missing or uncertain based on the retrieved data?
+5.  **References**: List full citations at the end.
+
+**IMPORTANT:** You are writing for a policy/scientific audience. Be rigorous.
 """
         return prompt
