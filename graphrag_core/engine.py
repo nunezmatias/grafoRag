@@ -20,7 +20,7 @@ import zipfile
 
 # --- CONFIGURACIÓN ---
 # IMPORTANTE: Reemplaza este ID con el ID real de tu archivo en Google Drive
-GDRIVE_FILE_ID = "YOUR_REAL_FILE_ID_FROM_GOOGLE_DRIVE" 
+GDRIVE_FILE_ID = "1jxCFQ9yxAE8IvYlFvRJkHUVemeSJXS1T" 
 
 class GraphRAGEngine:
     def __init__(self, vector_db_path=None, graph_json_path=None, model_name="BAAI/bge-base-en-v1.5", device=None):
