@@ -32,25 +32,36 @@ class GraphRAGEngine:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(base_dir, "data")
         
+        # Flag to track if we are using default paths (eligible for auto-download)
+        using_defaults = False
+
+        if vector_db_path is None and graph_json_path is None:
+            using_defaults = True
+            vector_db_path = os.path.join(data_dir, "climate_knowledge_vectordb_base")
+            graph_json_path = os.path.join(data_dir, "optimized_graph_base.json")
+        
+        # If user provided only one path, we can't infer the other safely, but let's assume standard behavior or raise error. 
+        # For now, if provided paths are None, we set them.
+        if vector_db_path is None: 
+             vector_db_path = os.path.join(data_dir, "climate_knowledge_vectordb_base")
+        if graph_json_path is None:
+             graph_json_path = os.path.join(data_dir, "optimized_graph_base.json")
+
         # Si el usuario provee un ID propio, usamos ese. Si no, el default.
         target_gdrive_id = gdrive_id if gdrive_id else DEFAULT_CLIMATE_ID
-        
-        if vector_db_path is None:
-            vector_db_path = os.path.join(data_dir, "climate_knowledge_vectordb_base")
-            
-        if graph_json_path is None:
-            graph_json_path = os.path.join(data_dir, "optimized_graph_base.json")
 
-        # AUTO-DESCARGA: Si las rutas no existen, descargamos usando el ID configurado
-        if not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path):
-            print(f"   ℹ️  Data not found locally. Attempting download (ID: {target_gdrive_id})...")
+        # AUTO-DESCARGA: Solo si estamos en modo default y faltan archivos
+        if using_defaults and (not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path)):
+            print(f"   ℹ️  Default data not found locally. Attempting download (ID: {target_gdrive_id})...")
             self._download_default_data(data_dir, target_gdrive_id)
 
         # Validar existencia final
-        if not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path):
-            raise FileNotFoundError(f"Data files missing! Please ensure the ZIP file (ID: {target_gdrive_id}) contains 'optimized_graph_base.json' and 'climate_knowledge_vectordb_base'.")
+        if not os.path.exists(vector_db_path):
+             raise FileNotFoundError(f"Vector DB not found at: {vector_db_path}")
+        if not os.path.exists(graph_json_path):
+             raise FileNotFoundError(f"Graph JSON not found at: {graph_json_path}")
         
-        print(f"   ℹ️  Using Graph Data from: {data_dir}")
+        print(f"   ℹ️  Using Graph Data from: {os.path.dirname(graph_json_path)}")
 
         # 1. Cargar Topología
         print(f"   > Loading Graph Topology from: {os.path.basename(graph_json_path)}")
