@@ -281,6 +281,9 @@ class GraphRAGEngine:
         """
         Convierte el objeto 'knowledge' en el Prompt Experto desarrollado originalmente.
         """
+        if not knowledge["papers"] and not knowledge["graph_links"]:
+            return "⚠️ NO DATA FOUND. The search returned 0 results. Check your query or data loading."
+        
         # Construir bloques de texto dinámicos
         papers_block = ""
         for p in knowledge["papers"]:
