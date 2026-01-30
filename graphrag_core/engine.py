@@ -74,7 +74,7 @@ class GraphRAGEngine:
 
     def _download_default_data(self, target_dir):
         """
-        Descarga y descomprime los datos desde Google Drive.
+        Descarga y descomprime los datos desde Google Drive, corrigiendo estructuras anidadas.
         """
         # Asegurar directorio
         os.makedirs(target_dir, exist_ok=True)
@@ -91,33 +91,50 @@ class GraphRAGEngine:
         # 2. Descargar
         if GDRIVE_FILE_ID == "YOUR_REAL_FILE_ID_FROM_GOOGLE_DRIVE":
             print("   ⚠️  WARNING: You haven't set the Real File ID in engine.py yet!")
-            print("   Please download the data manually or update GDRIVE_FILE_ID in the code.")
             return
 
-        url = f'https://drive.google.com/uc?id={GDRIVE_FILE_ID}'
-        print(f"   ⬇️  Downloading embedded data (ID: {GDRIVE_FILE_ID})...")
-        gdown.download(url, zip_path, quiet=False)
+        # Solo descargar si no existe o es muy pequeño (error de descarga previa)
+        if not os.path.exists(zip_path) or os.path.getsize(zip_path) < 1000:
+            url = f'https://drive.google.com/uc?id={GDRIVE_FILE_ID}'
+            print(f"   ⬇️  Downloading embedded data (ID: {GDRIVE_FILE_ID})...")
+            gdown.download(url, zip_path, quiet=False)
 
-        # 3. Descomprimir
-        print(f"   📦 Extracting data...")
+        # 3. Descomprimir Inteligente (Aplanando rutas)
+        print(f"   📦 Extracting data and fixing paths...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            # Asumiendo que el zip tiene la estructura graphRagClima/graphrag_core/data/...
-            # Ajustamos para extraer en target_dir plano
             for member in zip_ref.namelist():
-                # Eliminamos los directorios padres del path del zip para aplanar
                 filename = os.path.basename(member)
-                # Skip directories
-                if not filename: continue
                 
-                # Copiar archivo
-                source = zip_ref.open(member)
-                target = open(os.path.join(target_dir, filename), "wb")
-                with source, target:
-                    shutil.copyfileobj(source, target)
+                # Ignorar directorios vacíos
+                if not filename:
+                    continue
+
+                # Caso A: El JSON del grafo
+                if filename == "optimized_graph_base.json":
+                    source = zip_ref.open(member)
+                    target_file = os.path.join(target_dir, filename)
+                    with open(target_file, "wb") as f:
+                        shutil.copyfileobj(source, f)
+                
+                # Caso B: Base de datos Vectorial
+                elif "climate_knowledge_vectordb_base" in member:
+                    # Encontrar la parte de la ruta DESPUÉS de 'climate_knowledge_vectordb_base/'
+                    parts = member.split("climate_knowledge_vectordb_base/")
+                    if len(parts) > 1 and parts[1]:
+                        # Reconstruir la ruta relativa interna
+                        relative_path = os.path.join("climate_knowledge_vectordb_base", parts[1])
+                        final_path = os.path.join(target_dir, relative_path)
+                        
+                        # Crear subdirectorios necesarios
+                        os.makedirs(os.path.dirname(final_path), exist_ok=True)
+                        
+                        source = zip_ref.open(member)
+                        with open(final_path, "wb") as f:
+                            shutil.copyfileobj(source, f)
         
         # Limpieza
-        os.remove(zip_path)
-        print("   ✅ Data ready.")
+        # os.remove(zip_path) # Dejamos el zip por si acaso falla algo más
+        print("   ✅ Data ready and structured.")
 
     def _extract_title(self, text):
         # Heurística simple para extraer títulos si siguen el formato "Paper Title: ..."
