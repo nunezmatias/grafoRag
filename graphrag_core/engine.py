@@ -208,12 +208,27 @@ class GraphRAGEngine:
         except: pass
         return "Document Snippet"
 
-    def format_prompt(self, knowledge, query):
+    def format_prompt(self, knowledge, query, role=None, instructions=None, template=None):
         if not knowledge["papers"] and not knowledge["graph_links"]: return "No evidence found."
+
+        # Defaults
+        role = role if role else "You are a Climate Adaptation Knowledge Synthesizer with expertise in Systems Thinking."
+        instructions = instructions if instructions else "1. Triangulate data from both sections.\n2. Identify causal chains.\n3. Cite using [REF_PRI_x] and [GRAPH_x]."
+
+        # Build Blocks
         papers_block = ""
         for p in knowledge["papers"]:
             papers_block += f"[{p['ref_id']}] | SOURCE: {p['source_id']} | {p['title']} ({p['year']})\nKey excerpt: {p['content']}\n\n"
+        
         graph_block = ""
         for g in knowledge["graph_links"]:
             graph_block += f"[{g['graph_id']}] {g['node1']} --[{g['relation']}]--> {g['node2']}\nEvidence: {g['evidence']}\n\n"
-        return f"# ROLE\nYou are a Climate Adaptation Knowledge Synthesizer with expertise in Systems Thinking.\n\n# USER QUESTION\n\"{query}\"\n\n# DATA\n## 1. Literature\n{papers_block}## 2. Graph\n{graph_block}\n# INSTRUCTIONS\n1. Triangulate data from both sections.\n2. Identify causal chains.\n3. Cite using [REF_PRI_x] and [GRAPH_x].\n"
+            
+        # Use Custom or Default Template
+        if template:
+            try:
+                return template.format(role=role, query=query, papers_block=papers_block, graph_block=graph_block, instructions=instructions)
+            except KeyError as e:
+                return f"Error in template formatting: Missing key {e}"
+        
+        return f"# ROLE\n{role}\n\n# USER QUESTION\n\"{query}\"\n\n# DATA\n## 1. Literature\n{papers_block}## 2. Graph\n{graph_block}\n# INSTRUCTIONS\n{instructions}\n"
