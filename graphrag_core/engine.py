@@ -26,132 +26,108 @@ class GraphRAGEngine:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(base_dir, "data")
         
-        # CASO 1: Cerebro Personalizado desde Drive
-        if gdrive_id and gdrive_id != DEFAULT_CLIMATE_ID:
-            print(f"   🧠 Loading CUSTOM Brain from Drive ID: {gdrive_id}")
-            custom_dir = os.path.join("/tmp", f"graphrag_{gdrive_id}")
-            
-            # Limpieza y descarga fresca si no existe
-            if not os.path.exists(custom_dir):
-                self._download_custom_data(custom_dir, gdrive_id)
-            
-            # Descubrimiento automático de archivos (Busca en toda la estructura extraída)
-            print(f"   🔍 Searching for Knowledge Base files in {custom_dir}...")
-            
-            # Buscar el archivo JSON del grafo
-            json_files = glob.glob(os.path.join(custom_dir, "**", "*.json"), recursive=True)
-            # Buscar la carpeta que contiene chroma.sqlite3
-            sqlite_files = glob.glob(os.path.join(custom_dir, "**", "chroma.sqlite3"), recursive=True)
-            
-            if not json_files:
-                raise FileNotFoundError(f"No .json graph file found in the extracted package at {custom_dir}")
-            if not sqlite_files:
-                raise FileNotFoundError(f"No 'chroma.sqlite3' database found in the extracted package at {custom_dir}")
-            
-            graph_json_path = json_files[0]
-            vector_db_path = os.path.dirname(sqlite_files[0])
-            
-            print(f"   ✅ Discovered Graph: {os.path.basename(graph_json_path)}")
-            print(f"   ✅ Discovered Vector DB: {os.path.basename(vector_db_path)}")
-
-        # CASO 2: Defaults o Rutas Locales
+        # 1. DETERMINAR ID Y RUTAS
+        target_id = gdrive_id if gdrive_id else DEFAULT_CLIMATE_ID
+        is_custom = target_id != DEFAULT_CLIMATE_ID
+        
+        # Si es custom y no hay rutas, usamos /tmp para evitar problemas de permisos
+        if is_custom and vector_db_path is None:
+            work_dir = os.path.join("/tmp", f"graphrag_{target_id}")
         else:
-            if vector_db_path is None:
-                vector_db_path = os.path.join(data_dir, "climate_knowledge_vectordb_base")
-            if graph_json_path is None:
-                graph_json_path = os.path.join(data_dir, "optimized_graph_base.json")
-            
-            # Descargar Dataset Climático si faltan archivos
-            if not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path):
-                print(f"   ℹ️  Default Climate Data missing. Downloading...")
-                self._download_custom_data(data_dir, DEFAULT_CLIMATE_ID)
+            work_dir = data_dir
 
-        # Validación Final de Rutas
+        if vector_db_path is None:
+            vector_db_path = os.path.join(work_dir, "climate_knowledge_vectordb_base")
+        if graph_json_path is None:
+            graph_json_path = os.path.join(work_dir, "optimized_graph_base.json")
+
+        # 2. CARGA O DESCARGA
+        # Si los archivos no existen, disparamos la descarga
+        if not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path):
+            print(f"   ℹ️  Data missing at {work_dir}. Downloading (ID: {target_id})...")
+            self._download_and_extract(work_dir, target_id)
+            
+            # Tras descargar un CUSTOM, los nombres pueden ser distintos, así que escaneamos
+            if is_custom:
+                print(f"   🔍 Scanning for custom files in {work_dir}...")
+                jsons = glob.glob(os.path.join(work_dir, "**", "*.json"), recursive=True)
+                sqlites = glob.glob(os.path.join(work_dir, "**", "chroma.sqlite3"), recursive=True)
+                if jsons and sqlites:
+                    graph_json_path = jsons[0]
+                    vector_db_path = os.path.dirname(sqlites[0])
+                    print(f"   ✅ Discovered: {os.path.basename(graph_json_path)}")
+
+        # 3. VALIDACIÓN FINAL
         if not os.path.exists(vector_db_path): raise FileNotFoundError(f"Vector DB not found at: {vector_db_path}")
         if not os.path.exists(graph_json_path): raise FileNotFoundError(f"Graph JSON not found at: {graph_json_path}")
         
-        print(f"   ℹ️  Knowledge Base paths verified.")
+        print(f"   ℹ️  Using Graph Data from: {os.path.dirname(graph_json_path)}")
 
-        # 1. Cargar Topología del Grafo
-        print(f"   > Loading Graph Topology...")
+        # 4. CARGAR COMPONENTES
         with open(graph_json_path, 'r') as f:
             data = json.load(f)
         self.G = nx.DiGraph()
         for n in data['nodes']: 
             self.G.add_node(n['id'], label=n.get('label', n['id']))
         for e in data['edges']: 
-            # Soportar formatos 'source/target' o 'node1/node2'
             src = e.get('source') or e.get('node1')
             dst = e.get('target') or e.get('node2')
             self.G.add_edge(src, dst, id=e['id'], relation=e.get('relation'))
 
-        # 2. Cargar IA (Sentence Transformers)
-        print(f"   > Loading Embedding Model: {model_name}")
         self.model = SentenceTransformer(model_name, device=self.device)
         model_ref = self.model
         class LocalEmbeddingFunction(embedding_functions.EmbeddingFunction):
             def __call__(self, input: list[str]) -> list[list[float]]:
                 return model_ref.encode(input, normalize_embeddings=True, show_progress_bar=False).tolist()
         
-        # 3. Conectar a ChromaDB
-        print(f"   > Connecting to Vector Database...")
         client = chromadb.PersistentClient(path=vector_db_path)
         self.node_coll = client.get_collection("nodes_references_base", embedding_function=LocalEmbeddingFunction())
         self.edge_coll = client.get_collection("edges_evidence_base", embedding_function=LocalEmbeddingFunction())
         print("✅ System Ready.")
 
-    def _download_custom_data(self, target_dir, file_id):
-        """
-        Descarga datos desde Google Drive y los extrae en el directorio objetivo.
-        """
-        if os.path.exists(target_dir):
-            shutil.rmtree(target_dir)
+    def _download_and_extract(self, target_dir, file_id):
         os.makedirs(target_dir, exist_ok=True)
-        
-        # Ubicación neutral para el zip para evitar colisiones
-        temp_zip = f"/tmp/graphrag_temp_{file_id}.zip"
-        
+        temp_zip = f"/tmp/temp_graph_{file_id}.zip"
         try:
             import gdown
         except ImportError:
-            print("   📦 Installing 'gdown'...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown"])
             import gdown
-
+        
         url = f'https://drive.google.com/uc?id={file_id}'
-        print(f"   ⬇️  Downloading package (ID: {file_id})...")
         gdown.download(url, temp_zip, quiet=False)
 
-        print(f"   📦 Extracting package...")
+        print(f"   📦 Extracting and flattening...")
         with zipfile.ZipFile(temp_zip, 'r') as zip_ref:
-            zip_ref.extractall(target_dir)
+            for member in zip_ref.namelist():
+                filename = os.path.basename(member)
+                if not filename: continue
+                
+                # Lógica de aplanado: si es el json o parte de la DB, lo ponemos en la raíz de target_dir o su carpeta
+                if filename.endswith(".json") or "optimized_graph" in filename:
+                    with zip_ref.open(member) as source, open(os.path.join(target_dir, filename), "wb") as target:
+                        shutil.copyfileobj(source, target)
+                elif "climate_knowledge_vectordb_base" in member or "test_db" in member:
+                    # Preservar estructura interna de la DB pero aplanar la raíz
+                    db_root = "climate_knowledge_vectordb_base" if "climate_knowledge_vectordb_base" in member else "test_db"
+                    parts = member.split(f"{db_root}/")
+                    if len(parts) > 1 and parts[1]:
+                        final_path = os.path.join(target_dir, db_root, parts[1])
+                        os.makedirs(os.path.dirname(final_path), exist_ok=True)
+                        with zip_ref.open(member) as source, open(final_path, "wb") as target:
+                            shutil.copyfileobj(source, target)
+                else:
+                    # Otros archivos (README, etc) a la raíz
+                    with zip_ref.open(member) as source, open(os.path.join(target_dir, filename), "wb") as target:
+                        shutil.copyfileobj(source, target)
         
-        # Limpiar el zip temporal
-        if os.path.exists(temp_zip):
-            os.remove(temp_zip)
-        print("   ✅ Extraction complete.")
-
-    def _extract_title(self, text):
-        try:
-            start = text.find("Paper Title:") + 13
-            end = text.find("\n", start)
-            if start > 12 and end > start: return text[start:end].strip()
-        except: pass
-        return "Document Snippet"
+        if os.path.exists(temp_zip): os.remove(temp_zip)
 
     def search(self, query, top_k=3, hops=1, context_k=2):
-        """
-        Búsqueda híbrida (Vectorial + Expansión Temática + Grafo).
-        """
-        knowledge = {
-            "papers": [],
-            "graph_links": [],
-            "stats": {"primary": 0, "context": 0, "graph": 0}
-        }
+        knowledge = {"papers": [], "graph_links": [], "stats": {"primary": 0, "context": 0, "graph": 0}}
         seen_docs = set()
         anchor_ids = set()
 
-        # 1. Búsqueda Vectorial Primaria
         results = self.node_coll.query(query_texts=[query], n_results=top_k)
         if results['ids']:
             for i, doc in enumerate(results['documents'][0]):
@@ -159,7 +135,6 @@ class GraphRAGEngine:
                 seen_docs.add(doc)
                 meta = results['metadatas'][0][i]
                 anchor_ids.add(meta['node_id'])
-                
                 knowledge["papers"].append({
                     "ref_id": f"REF_PRI_{i+1}",
                     "source_id": meta.get('url', meta.get('doi', 'N/A')),
@@ -171,21 +146,20 @@ class GraphRAGEngine:
                 })
         knowledge["stats"]["primary"] = len(knowledge["papers"])
 
-        # 2. Expansión de Contexto por Nodo
         if context_k > 0 and anchor_ids:
             print(f"      > Expanding context for {len(anchor_ids)} topics...")
             for nid in anchor_ids:
                 try:
                     res = self.node_coll.query(query_texts=[query], n_results=context_k+2, where={"node_id": nid})
                     if res['ids']:
-                        added_count = 0
+                        added = 0
                         for doc, meta in zip(res['documents'][0], res['metadatas'][0]):
                             if doc in seen_docs: continue
-                            if added_count >= context_k: break
+                            if added >= context_k: break
                             seen_docs.add(doc)
-                            added_count += 1
+                            added += 1
                             knowledge["papers"].append({
-                                "ref_id": f"REF_CTX_{nid}_{added_count}",
+                                "ref_id": f"REF_CTX_{nid}_{added}",
                                 "source_id": meta.get('url', meta.get('doi', 'N/A')),
                                 "title": self._extract_title(doc),
                                 "year": meta.get('year', 'N/A'),
@@ -196,7 +170,6 @@ class GraphRAGEngine:
                 except: pass
         knowledge["stats"]["context"] = len(knowledge["papers"]) - knowledge["stats"]["primary"]
 
-        # 3. Travesía del Grafo
         if hops > 0 and anchor_ids:
             visited_edges = set()
             count = 1
@@ -227,36 +200,20 @@ class GraphRAGEngine:
         knowledge["stats"]["graph"] = len(knowledge["graph_links"])
         return knowledge
 
+    def _extract_title(self, text):
+        try:
+            start = text.find("Paper Title:") + 13
+            end = text.find("\n", start)
+            if start > 12 and end > start: return text[start:end].strip()
+        except: pass
+        return "Document Snippet"
+
     def format_prompt(self, knowledge, query):
-        """
-        Genera el prompt experto para el LLM.
-        """
-        if not knowledge["papers"] and not knowledge["graph_links"]:
-            return "No evidence found."
-        
+        if not knowledge["papers"] and not knowledge["graph_links"]: return "No evidence found."
         papers_block = ""
         for p in knowledge["papers"]:
             papers_block += f"[{p['ref_id']}] | SOURCE: {p['source_id']} | {p['title']} ({p['year']})\nKey excerpt: {p['content']}\n\n"
-        
         graph_block = ""
         for g in knowledge["graph_links"]:
             graph_block += f"[{g['graph_id']}] {g['node1']} --[{g['relation']}]--> {g['node2']}\nEvidence: {g['evidence']}\n\n"
-        
-        return f"""# ROLE
-You are a Climate Adaptation Knowledge Synthesizer with expertise in Systems Thinking.
-
-# USER QUESTION
-"{query}"
-
-# KNOWLEDGE BASE
-## 1. Scientific Literature
-{papers_block}
-
-## 2. Structural Context (Graph)
-{graph_block}
-
-# INSTRUCTIONS
-1. Triangulate data: Identify where literature and graph connections overlap.
-2. Causal reasoning: Explain mechanistic pathways (A -> B -> C).
-3. Citation: Use [REF_PRI_x] and [GRAPH_x] tags.
-"""
+        return f"# ROLE\nYou are a Climate Adaptation Knowledge Synthesizer with expertise in Systems Thinking.\n\n# USER QUESTION\n\"{query}\"\n\n# DATA\n## 1. Literature\n{papers_block}## 2. Graph\n{graph_block}\n# INSTRUCTIONS\n1. Triangulate data from both sections.\n2. Identify causal chains.\n3. Cite using [REF_PRI_x] and [GRAPH_x].\n"
