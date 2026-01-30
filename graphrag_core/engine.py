@@ -10,6 +10,7 @@ import subprocess
 import zipfile
 import shutil
 import random
+import glob
 
 # --- CONFIGURACIÓN ---
 DEFAULT_CLIMATE_ID = "1jxCFQ9yxAE8IvYlFvRJkHUVemeSJXS1T"
@@ -18,48 +19,57 @@ class GraphRAGEngine:
     def __init__(self, vector_db_path=None, graph_json_path=None, gdrive_id=None, model_name="BAAI/bge-base-en-v1.5", device=None):
         """
         Inicializa el motor GraphRAG.
-        
-        Args:
-            vector_db_path (str): Ruta local a la DB Chroma.
-            graph_json_path (str): Ruta local al JSON del grafo.
-            gdrive_id (str): ID de Google Drive para descargar datos si no existen localmente.
-                             Si es None, usa el Dataset Climático por defecto.
         """
         self.device = device if device else ("mps" if torch.backends.mps.is_available() else "cpu")
         print(f"🚀 Initializing GraphRAG Engine on {self.device.upper()}...")
         
-        # 0. Resolución de Rutas Automática
         base_dir = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(base_dir, "data")
         
-        # Flag to track if we are using default paths (eligible for auto-download)
-        using_defaults = False
+        # CASO 1: Cerebro Personalizado desde Drive
+        if gdrive_id and gdrive_id != DEFAULT_CLIMATE_ID:
+            print(f"   🧠 Loading CUSTOM Brain from Drive ID: {gdrive_id}")
+            # Usar directorio temporal para no mezclar con datos default
+            custom_dir = os.path.join("/tmp", f"graphrag_{gdrive_id}")
+            
+            if not os.path.exists(custom_dir):
+                self._download_default_data(custom_dir, gdrive_id)
+            
+            # Descubrimiento automático de archivos
+            try:
+                # Buscar JSON (Esqueleto)
+                json_files = glob.glob(os.path.join(custom_dir, "**", "*.json"), recursive=True)
+                if not json_files: raise FileNotFoundError("No .json graph file found in custom zip")
+                graph_json_path = json_files[0] # Tomamos el primero
+                
+                # Buscar ChromaDB (carpeta con chroma.sqlite3)
+                sqlite_files = glob.glob(os.path.join(custom_dir, "**", "chroma.sqlite3"), recursive=True)
+                if not sqlite_files: raise FileNotFoundError("No chroma.sqlite3 found in custom zip")
+                vector_db_path = os.path.dirname(sqlite_files[0])
+                
+                print(f"   🔍 Discovered Graph: {os.path.basename(graph_json_path)}")
+                print(f"   🔍 Discovered DB: {os.path.basename(vector_db_path)}")
+                
+            except Exception as e:
+                raise RuntimeError(f"Failed to load custom brain structure: {e}")
 
-        if vector_db_path is None and graph_json_path is None:
-            using_defaults = True
-            vector_db_path = os.path.join(data_dir, "climate_knowledge_vectordb_base")
-            graph_json_path = os.path.join(data_dir, "optimized_graph_base.json")
-        
-        # If user provided only one path, we can't infer the other safely, but let's assume standard behavior or raise error. 
-        # For now, if provided paths are None, we set them.
-        if vector_db_path is None: 
-             vector_db_path = os.path.join(data_dir, "climate_knowledge_vectordb_base")
-        if graph_json_path is None:
-             graph_json_path = os.path.join(data_dir, "optimized_graph_base.json")
+        # CASO 2: Rutas explícitas o Default Climate Brain
+        else:
+            # Si no se dan rutas, asumir defaults internos
+            if vector_db_path is None:
+                vector_db_path = os.path.join(data_dir, "climate_knowledge_vectordb_base")
+            if graph_json_path is None:
+                graph_json_path = os.path.join(data_dir, "optimized_graph_base.json")
+            
+            # Descargar Default si falta
+            target_id = DEFAULT_CLIMATE_ID
+            if not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path):
+                print(f"   ℹ️  Default data missing. Downloading Climate Brain...")
+                self._download_default_data(data_dir, target_id)
 
-        # Si el usuario provee un ID propio, usamos ese. Si no, el default.
-        target_gdrive_id = gdrive_id if gdrive_id else DEFAULT_CLIMATE_ID
-
-        # AUTO-DESCARGA: Solo si estamos en modo default y faltan archivos
-        if using_defaults and (not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path)):
-            print(f"   ℹ️  Default data not found locally. Attempting download (ID: {target_gdrive_id})...")
-            self._download_default_data(data_dir, target_gdrive_id)
-
-        # Validar existencia final
-        if not os.path.exists(vector_db_path):
-             raise FileNotFoundError(f"Vector DB not found at: {vector_db_path}")
-        if not os.path.exists(graph_json_path):
-             raise FileNotFoundError(f"Graph JSON not found at: {graph_json_path}")
+        # Validación Final
+        if not os.path.exists(vector_db_path): raise FileNotFoundError(f"Vector DB not found: {vector_db_path}")
+        if not os.path.exists(graph_json_path): raise FileNotFoundError(f"Graph JSON not found: {graph_json_path}")
         
         print(f"   ℹ️  Using Graph Data from: {os.path.dirname(graph_json_path)}")
 
