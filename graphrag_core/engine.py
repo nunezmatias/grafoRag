@@ -12,14 +12,18 @@ import shutil
 import random
 
 # --- CONFIGURACIÓN ---
-# IMPORTANTE: Reemplaza este ID con el ID real de tu archivo en Google Drive
-GDRIVE_FILE_ID = "1jxCFQ9yxAE8IvYlFvRJkHUVemeSJXS1T" 
+DEFAULT_CLIMATE_ID = "1jxCFQ9yxAE8IvYlFvRJkHUVemeSJXS1T"
 
 class GraphRAGEngine:
-    def __init__(self, vector_db_path=None, graph_json_path=None, model_name="BAAI/bge-base-en-v1.5", device=None):
+    def __init__(self, vector_db_path=None, graph_json_path=None, gdrive_id=None, model_name="BAAI/bge-base-en-v1.5", device=None):
         """
         Inicializa el motor GraphRAG.
-        Si no se proveen rutas, intenta usar/descargar el DATASET CLIMÁTICO interno.
+        
+        Args:
+            vector_db_path (str): Ruta local a la DB Chroma.
+            graph_json_path (str): Ruta local al JSON del grafo.
+            gdrive_id (str): ID de Google Drive para descargar datos si no existen localmente.
+                             Si es None, usa el Dataset Climático por defecto.
         """
         self.device = device if device else ("mps" if torch.backends.mps.is_available() else "cpu")
         print(f"🚀 Initializing GraphRAG Engine on {self.device.upper()}...")
@@ -28,20 +32,23 @@ class GraphRAGEngine:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(base_dir, "data")
         
+        # Si el usuario provee un ID propio, usamos ese. Si no, el default.
+        target_gdrive_id = gdrive_id if gdrive_id else DEFAULT_CLIMATE_ID
+        
         if vector_db_path is None:
             vector_db_path = os.path.join(data_dir, "climate_knowledge_vectordb_base")
             
         if graph_json_path is None:
             graph_json_path = os.path.join(data_dir, "optimized_graph_base.json")
 
-        # AUTO-DESCARGA: Si las rutas por defecto no existen, intentamos bajar los datos
+        # AUTO-DESCARGA: Si las rutas no existen, descargamos usando el ID configurado
         if not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path):
-            print(f"   ℹ️  Default data not found locally. Attempting to download from Google Drive...")
-            self._download_default_data(data_dir)
+            print(f"   ℹ️  Data not found locally. Attempting download (ID: {target_gdrive_id})...")
+            self._download_default_data(data_dir, target_gdrive_id)
 
         # Validar existencia final
         if not os.path.exists(vector_db_path) or not os.path.exists(graph_json_path):
-            raise FileNotFoundError(f"Data files missing! Please ensure 'climate_data.zip' is downloaded and extracted to: {data_dir}")
+            raise FileNotFoundError(f"Data files missing! Please ensure the ZIP file (ID: {target_gdrive_id}) contains 'optimized_graph_base.json' and 'climate_knowledge_vectordb_base'.")
         
         print(f"   ℹ️  Using Graph Data from: {data_dir}")
 
@@ -72,13 +79,13 @@ class GraphRAGEngine:
         self.edge_coll = client.get_collection("edges_evidence_base", embedding_function=LocalEmbeddingFunction())
         print("✅ System Ready.")
 
-    def _download_default_data(self, target_dir):
+    def _download_default_data(self, target_dir, file_id):
         """
-        Descarga y descomprime los datos desde Google Drive, corrigiendo estructuras anidadas.
+        Descarga y descomprime los datos desde Google Drive usando un ID específico.
         """
         # Asegurar directorio
         os.makedirs(target_dir, exist_ok=True)
-        zip_path = os.path.join(target_dir, "climate_data.zip")
+        zip_path = os.path.join(target_dir, "data_package.zip")
         
         # 1. Instalar gdown si no existe
         try:
@@ -89,14 +96,14 @@ class GraphRAGEngine:
             import gdown
 
         # 2. Descargar
-        if GDRIVE_FILE_ID == "YOUR_REAL_FILE_ID_FROM_GOOGLE_DRIVE":
-            print("   ⚠️  WARNING: You haven't set the Real File ID in engine.py yet!")
+        if not file_id:
+            print("   ⚠️  WARNING: No Google Drive ID provided.")
             return
 
-        # Solo descargar si no existe o es muy pequeño (error de descarga previa)
+        # Solo descargar si no existe o es muy pequeño
         if not os.path.exists(zip_path) or os.path.getsize(zip_path) < 1000:
-            url = f'https://drive.google.com/uc?id={GDRIVE_FILE_ID}'
-            print(f"   ⬇️  Downloading embedded data (ID: {GDRIVE_FILE_ID})...")
+            url = f'https://drive.google.com/uc?id={file_id}'
+            print(f"   ⬇️  Downloading data package...")
             gdown.download(url, zip_path, quiet=False)
 
         # 3. Descomprimir Inteligente (Aplanando rutas)

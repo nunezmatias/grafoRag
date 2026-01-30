@@ -141,4 +141,52 @@ If you are an AI assistant tasked with modifying this code:
 
 ## 6. Known Limitations
 *   **Static Graph:** The graph structure is loaded into memory (NetworkX). For extremely massive graphs (>1M nodes), this needs to be migrated to a Graph Database (Neo4j).
-*   **Model Dependency:** The vector DB is tied to `BAAI/bge-base-en-v1.5`. Changing the model requires a full rebuild of the database.
+---
+
+## 7. Customizing Data Sources
+
+The engine is designed to be "Plug & Play" with the default Climate Database, but it is fully agnostic. You can swap the "brain" of the system by providing your own data.
+
+### 7.1. Expected Data Package (ZIP)
+If you want to host your own data on Google Drive for auto-download, package a `.zip` file containing:
+
+1.  **`optimized_graph_base.json`**: The topology file.
+2.  **`climate_knowledge_vectordb_base/`**: The ChromaDB folder.
+
+**Zip Structure:**
+```text
+my_data.zip
+├── optimized_graph_base.json
+└── climate_knowledge_vectordb_base/
+    ├── chroma.sqlite3
+    └── ... (other chroma files)
+```
+*Note: The engine's smart extractor will find these files even if they are nested inside folders within the zip, but flat is better.*
+
+### 7.2. Using a Custom Database
+You can initialize the engine with a custom Google Drive ID to download your own data:
+
+```python
+engine = GraphRAGEngine(
+    gdrive_id="YOUR_NEW_FILE_ID_HERE"
+)
+```
+
+Or point to local paths if you have the files already:
+
+```python
+engine = GraphRAGEngine(
+    vector_db_path="./my_local_db",
+    graph_json_path="./my_local_graph.json"
+)
+```
+
+### 7.3. ChromaDB Collections Schema
+If you build the database yourself (using `builder.py`), ensure these collection names are used:
+
+*   **`nodes_references_base`**:
+    *   **Document**: Text chunk of the node.
+    *   **Metadata**: `node_id`, `url`, `year`, `title`.
+*   **`edges_evidence_base`**:
+    *   **Document**: Text snippet justifying the link.
+    *   **Metadata**: `edge_id`, `source`, `target`, `relation`.
