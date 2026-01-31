@@ -38,3 +38,6 @@ Once the test database is built, we must ensure the `GraphRAGEngine` can load an
 
 ## 4. Graph Quality Improvements
 - [ ] **Improve Skeleton Graph Mapping:** Redo the mapping between the real graph and the skeleton graph, taking into consideration other information that was previously missed.
+
+## 5. Development Workflow Improvements
+- [ ] **Investigate Google Colab VS Code Extension:** Analyze the features of the [Google Colab for VS Code](https://marketplace.visualstudio.com/items?itemName=google.colab-vscode) extension. Determine if it allows a smoother hybrid workflow (local editing, cloud execution) and document the setup process for the team.
