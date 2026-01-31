@@ -68,12 +68,13 @@ class GraphRAGEngine:
             data = json.load(f)
         self.G = nx.DiGraph()
         for n in data['nodes']: 
-            self.G.add_node(n['id'], label=n.get('label', n['id']))
+            # Store full node metadata
+            self.G.add_node(n['id'], **n)
         for e in data['edges']: 
             src = e.get('source') or e.get('node1')
             dst = e.get('target') or e.get('node2')
             self.G.add_edge(src, dst, id=e['id'], relation=e.get('relation'))
-
+            
         self.model = SentenceTransformer(model_name, device=self.device)
         model_ref = self.model
         class LocalEmbeddingFunction(embedding_functions.EmbeddingFunction):
@@ -184,12 +185,19 @@ class GraphRAGEngine:
                         if edge_data['id'] not in visited_edges:
                             edocs = self.edge_coll.get(where={"edge_id": edge_data['id']}, limit=1)
                             evidence = edocs['documents'][0] if edocs['documents'] else "Structural link."
+                            
+                            # Retrieve metadata for tooltip
+                            n1_data = self.G.nodes[anchor]
+                            n2_data = self.G.nodes[neighbor]
+                            
                             knowledge["graph_links"].append({
                                 "graph_id": f"GRAPH_{count}",
                                 "node1": anchor,
                                 "node2": neighbor,
                                 "relation": edge_data.get('relation', 'RELATED'),
-                                "evidence": evidence.strip()
+                                "evidence": evidence.strip(),
+                                "source_metadata": n1_data,
+                                "target_metadata": n2_data
                             })
                             visited_edges.add(edge_data['id'])
                             count += 1

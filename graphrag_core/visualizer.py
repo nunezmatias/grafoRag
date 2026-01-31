@@ -36,12 +36,47 @@ def visualize_results(results, title="RAG Knowledge Subgraph", height="600px", d
         rel = link["relation"]
         
         # Add Edge
-        # PyVis handles node creation automatically when adding edges, but we want custom attributes
         G.add_edge(u, v, title=rel, label=rel)
-        nodes.add(u)
-        nodes.add(v)
+        
+        # Add Node Attributes if available
+        # PyVis uses 'title' for tooltips (supports HTML)
+        if u not in nodes:
+            u_meta = link.get("source_metadata", {})
+            u_tooltip = _format_tooltip(u, u_meta)
+            G.add_node(u, title=u_tooltip, label=u_meta.get('label', u))
+            nodes.add(u)
+            
+        if v not in nodes:
+            v_meta = link.get("target_metadata", {})
+            v_tooltip = _format_tooltip(v, v_meta)
+            G.add_node(v, title=v_tooltip, label=v_meta.get('label', v))
+            nodes.add(v)
 
     net.from_nx(G)
+
+def _format_tooltip(node_id, meta):
+    """
+    Creates a clean HTML tooltip from node metadata.
+    """
+    if not meta: return f"<b>{node_id}</b>"
+    
+    html = f"<div style='font-family: Arial; font-size: 12px; min-width: 200px;'>"
+    html += f"<b style='font-size: 14px; color: #333;'>{meta.get('label', node_id)}</b><hr style='border-top: 1px solid #ccc; margin: 5px 0;'>"
+    
+    # Prioritize fields to show
+    priority_fields = ['type', 'description', 'definition', 'source']
+    
+    for key in priority_fields:
+        if key in meta:
+            val = meta[key]
+            if len(str(val)) > 300: val = str(val)[:300] + "..."
+            html += f"<b>{key.capitalize()}:</b> {val}<br>"
+            
+    # Show counts if available
+    if 'degree' in meta: html += f"<b>Degree:</b> {meta['degree']}<br>"
+    
+    html += "</div>"
+    return html
     
     # 3. Apply Premium Styling
     # Node Styling
