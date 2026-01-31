@@ -232,3 +232,17 @@ class GraphRAGEngine:
                 return f"Error in template formatting: Missing key {e}"
         
         return f"# ROLE\n{role}\n\n# USER QUESTION\n\"{query}\"\n\n# DATA\n## 1. Literature\n{papers_block}## 2. Graph\n{graph_block}\n# INSTRUCTIONS\n{instructions}\n"
+
+    def visualize(self, results, title="Knowledge Subgraph", height="600px", dark_mode=True):
+        """
+        Visualizes the search results as an interactive graph.
+        """
+        try:
+            from .visualizer import visualize_results
+            return visualize_results(results, title=title, height=height, dark_mode=dark_mode)
+        except ImportError:
+            print("❌ PyVis not installed. Please install it via pip or setup.py.")
+            return None
+        except Exception as e:
+            print(f"❌ Visualization Error: {e}")
+            return None

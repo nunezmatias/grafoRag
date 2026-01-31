@@ -12,7 +12,8 @@ setup(
         "sentence-transformers",
         "networkx",
         "torch",
-        "tqdm"
+        "tqdm",
+        "pyvis"
     ],
     python_requires=">=3.9",
 )
