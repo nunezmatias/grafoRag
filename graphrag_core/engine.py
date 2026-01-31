@@ -230,7 +230,16 @@ class GraphRAGEngine:
         
         graph_block = ""
         for g in knowledge["graph_links"]:
-            graph_block += f"[{g['graph_id']}] {g['node1']} --[{g['relation']}]--> {g['node2']}\nEvidence: {g['evidence']}\n\n"
+            # Extract metadata if available
+            n1_meta = g.get('source_metadata', {})
+            n2_meta = g.get('target_metadata', {})
+            
+            # Format node context (Definitions/Descriptions)
+            context_str = ""
+            if n1_meta.get('description'): context_str += f"   * {g['node1']}: {n1_meta['description'][:150]}...\n"
+            if n2_meta.get('description'): context_str += f"   * {g['node2']}: {n2_meta['description'][:150]}...\n"
+            
+            graph_block += f"[{g['graph_id']}] {g['node1']} --[{g['relation']}]--> {g['node2']}\nEvidence: {g['evidence']}\n{context_str}\n"
             
         # Use Custom or Default Template
         if template:
