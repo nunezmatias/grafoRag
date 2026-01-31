@@ -35,3 +35,6 @@ Once the test database is built, we must ensure the `GraphRAGEngine` can load an
 ## 3. Deployment & Integration Tests
 - [ ] **Colab "Swap Brain" Test:** Upload the `test_data.json` (or a real alternative dataset) to Google Drive, zip it according to specs, and try the `gdrive_id` initialization in a fresh Colab notebook.
 - [ ] **Schema Robustness:** Test with a JSON that has missing optional fields (e.g., nodes without references) to ensure the builder doesn't crash.
+
+## 4. Graph Quality Improvements
+- [ ] **Improve Skeleton Graph Mapping:** Redo the mapping between the real graph and the skeleton graph, taking into consideration other information that was previously missed.
