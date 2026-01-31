@@ -236,8 +236,24 @@ class GraphRAGEngine:
             
             # Format node context (Definitions/Descriptions)
             context_str = ""
-            if n1_meta.get('description'): context_str += f"   * {g['node1']}: {n1_meta['description'][:150]}...\n"
-            if n2_meta.get('description'): context_str += f"   * {g['node2']}: {n2_meta['description'][:150]}...\n"
+            # Priority fields to include in prompt context
+            relevant_fields = ['description', 'definition', 'text', 'title', 'source', 'type']
+            
+            def _get_node_context(node_id, meta):
+                info = []
+                for key in relevant_fields:
+                    val = meta.get(key)
+                    if val and isinstance(val, str) and len(val) > 2:
+                        label = key.capitalize()
+                        val_clean = val.replace("\n", " ")[:200] # Truncate and clean
+                        info.append(f"{label}: {val_clean}")
+                return " | ".join(info)
+
+            n1_ctx = _get_node_context(g['node1'], n1_meta)
+            if n1_ctx: context_str += f"   * {g['node1']}: {n1_ctx}\n"
+            
+            n2_ctx = _get_node_context(g['node2'], n2_meta)
+            if n2_ctx: context_str += f"   * {g['node2']}: {n2_ctx}\n"
             
             graph_block += f"[{g['graph_id']}] {g['node1']} --[{g['relation']}]--> {g['node2']}\nEvidence: {g['evidence']}\n{context_str}\n"
             
